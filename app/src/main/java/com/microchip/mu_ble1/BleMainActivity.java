@@ -39,6 +39,9 @@ import android.provider.Settings;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
@@ -56,11 +59,8 @@ import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
-/**
- * Activity shows temperature and accelerometer data from the AVR BLE development board (running custom firmware)
- */
 public class BleMainActivity extends AppCompatActivity {
-    private final static String TAG = BleMainActivity.class.getSimpleName();                        //Activity name for logging messages on the ADB
+    private final static String TAG = BleMainActivity.class.getSimpleName();
 
     private static final int REQ_CODE_ENABLE_BT =     1;                                            //Codes to identify activities that return results such as enabling Bluetooth
     private static final int REQ_CODE_SCAN_ACTIVITY = 2;                                            //or scanning for bluetooth devices
@@ -75,14 +75,13 @@ public class BleMainActivity extends AppCompatActivity {
     private Handler connectTimeoutHandler;                                                          //Handler to provide a time out if connection attempt takes too long
     private String bleDeviceName, bleDeviceAddress;                                                 //Name and address of remote Bluetooth device
     private TextView textDeviceNameAndAddress;                                                      //To show device and status information on the screen
-    private TextView textTemperature, textAccelerometerX, textAccelerometerY, textAccelerometerZ;   //To show the temperature and accelerometer measurements
-    private SwitchCompat switchGreenLed, switchRedLed;                                              //Switches to control and show LED state
+    private TextView textTemperature;
     private enum StateConnection {DISCONNECTED, CONNECTING, DISCOVERING, CONNECTED, DISCONNECTING}  //States of the Bluetooth connection
     private StateConnection stateConnection;                                                        //State of Bluetooth connection
     private enum StateApp {STARTING_SERVICE, REQUEST_PERMISSION, ENABLING_BLUETOOTH, RUNNING}       //States of the app
     private StateApp stateApp;                                                                      //State of the app
-    private LineGraphSeries<DataPoint> accelXSeries, accelYSeries, accelZSeries;                    //Data to plot on the graph
-    private double accelGraphHorizontalPoint = 0d;                                                  //Current horizontal position to be plotted on the graph
+    private LineGraphSeries<DataPoint> rxSeries;
+    private double GraphHorizontalPoint = 0d;                                                  //Current horizontal position to be plotted on the graph
 
     /******************************************************************************************************************
      * Methods for handling life cycle events of the activity.
@@ -112,34 +111,27 @@ public class BleMainActivity extends AppCompatActivity {
             this.bindService(bleServiceIntent, bleServiceConnection, BIND_AUTO_CREATE);             //Create and bind the new service with bleServiceConnection object that handles service connect and disconnect
         }
         connectTimeoutHandler = new Handler(Looper.getMainLooper());                                //Create a handler for a delayed runnable that will stop the connection attempt after a timeout
-        switchGreenLed = findViewById(R.id.greenLedSwitch);                                         //Get a reference to the Switch used to light the green LED
-        switchGreenLed.setThumbTintList(getResources().getColorStateList(R.color.green_switch));    //Set the color list for the two states of the on/off indicator of the switch for the green LED
-        switchGreenLed.setTrackTintList(getResources().getColorStateList(R.color.switch_track));    //Set the color list for the two states of the track under the on/off indicator for the green LED
-        switchRedLed = findViewById(R.id.redLedSwitch);                                             //Get a reference to the Switch used to light the red LED
-        switchRedLed.setThumbTintList(getResources().getColorStateList(R.color.red_switch));        //Set the color list for the two states of the on/off indicator of the switch for the red LED
-        switchRedLed.setTrackTintList(getResources().getColorStateList(R.color.switch_track));      //Set the color list for the two states of the track under the on/off indicator for the red LED
         textDeviceNameAndAddress = findViewById(R.id.deviceNameAndAddressText);                     //Get a reference to the TextView that will display the device name and address
         textTemperature = findViewById(R.id.temperatureTextView);                                   //Get a reference to the TextView that will display the temperature
-        textAccelerometerX = findViewById(R.id.accelerometerXTextView);                             //Get a reference to the TextView that will display the accelerometer X value
-        textAccelerometerY = findViewById(R.id.accelerometerYTextView);                             //Get a reference to the TextView that will display the accelerometer Y value
-        textAccelerometerZ = findViewById(R.id.accelerometerZTextView);                             //Get a reference to the TextView that will display the accelerometer Z value
-        GraphView accelerometerGraph = findViewById(R.id.accelGraph);                               //Get a reference to the GraphView that will plot the accelerometer value
-        accelXSeries = new LineGraphSeries<>();                                                     //Create a series to graph accelerometer X values
-        accelXSeries.setColor(Color.RED);                                                           //Set the color for the accelerometer X value line on the graph
-        accelerometerGraph.addSeries(accelXSeries);                                                 //Add the series to the graph
-        accelYSeries = new LineGraphSeries<>();                                                     //Create a series to graph accelerometer Y values
-        accelYSeries.setColor(getResources().getColor(R.color.Green));                              //Set the color for the accelerometer Y value line on the graph
-        accelerometerGraph.addSeries(accelYSeries);                                                 //Add the series to the graph
-        accelZSeries = new LineGraphSeries<>();                                                     //Create a series to graph accelerometer Z values
-        accelZSeries.setColor(Color.BLUE);                                                          //Set the color for the accelerometer Z value line on the graph
-        accelerometerGraph.addSeries(accelZSeries);                                                 //Add the series to the graph
-        accelerometerGraph.getViewport().setXAxisBoundsManual(true);                                //Manually set limits for horizontal X axis of graph
-        accelerometerGraph.getViewport().setMinX(0);                                                //Graph will plot points from 0
-        accelerometerGraph.getViewport().setMaxX(30);                                               // to 30 on X axis
-        accelerometerGraph.getViewport().setYAxisBoundsManual(true);                                //Manually set limits for horizontal X axis of graph
-        accelerometerGraph.getViewport().setMinY(-2048);                                            //Graph will plot points from -2048
-        accelerometerGraph.getViewport().setMaxY(2047);                                             // to +2047 on Y axis
+
+        GraphView rxGraph_ = findViewById(R.id.rxGraph);                               //Get a reference to the GraphView that will plot the accelerometer value
+        rxSeries = new LineGraphSeries<>();
+        rxSeries.setColor(Color.BLUE);
+        rxGraph_.addSeries(rxSeries);
+
+        Button bt_send_ = findViewById(R.id.bt_send);
+        EditText et_send_ = findViewById(R.id.et_send);
+
+        bt_send_.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String sendData = et_send_.getText().toString();
+                bleService.writeToTransparentUART(sendData.getBytes());
+                et_send_.setText(null);
+            }
+        });
     }
+
 
     // ----------------------------------------------------------------------------------------------------------------
     // Activity started
@@ -474,14 +466,9 @@ public class BleMainActivity extends AppCompatActivity {
 
     private void initializeDisplay() {
         try {
-            textTemperature.setText(R.string.degrees_celcius_blank);                                                      //Clear the temperature and accelerometer text and graphs
-            textAccelerometerX.setText(R.string.accelerometer_x_blank);
-            textAccelerometerY.setText(R.string.accelerometer_y_blank);
-            textAccelerometerZ.setText(R.string.accelerometer_z_blank);
-            accelXSeries.resetData(new DataPoint[0]);
-            accelYSeries.resetData(new DataPoint[0]);
-            accelZSeries.resetData(new DataPoint[0]);
-            accelGraphHorizontalPoint = 0d;
+            textTemperature.setText("------------------");                                                      //Clear the temperature and accelerometer text and graphs
+            rxSeries.resetData(new DataPoint[0]);
+            GraphHorizontalPoint = 0d;
         } catch (Exception e) {
             Log.e(TAG, "Oops, exception caught in " + e.getStackTrace()[0].getMethodName() + ": " + e.getMessage());
         }
@@ -502,65 +489,12 @@ public class BleMainActivity extends AppCompatActivity {
                         transparentUartData.reset();                                                //Clear out the original data
                         transparentUartData.write(leftOver);                                        // and save the remaining bytes for later
                         final String newLineStr = new String(newLine, StandardCharsets.UTF_8);      //Create a string from the bytes up to the termination byte
-                        int ledIndex = newLineStr.indexOf("L02");                                   //Search for the text for the LED state
                         int tempIndex = newLineStr.indexOf("T04");                                  //Search for the text for the temperature reading
-                        int accelIndex = newLineStr.indexOf("X0C");                                 //Search for the text for the accelerometer readings
-                        //Got LED packet
-                        if (ledIndex != -1) {                                                       //See if the LED text was found
-                            if (newLineStr.charAt(ledIndex + 3) == '0') {                           //See if the status is for the green LED (LED0)
-                                if (newLineStr.charAt(ledIndex + 4) == '0' && switchGreenLed.isChecked()) { //See if the LED is off and should be on
-                                    bleService.writeToTransparentUART("[0L0201]".getBytes());       //Write command to the Transparent UART to light the green LED (LED0)
-                                }
-                                else if (newLineStr.charAt(ledIndex + 4) == '1' && !switchGreenLed.isChecked()) { //See if the LED is on and should be off
-                                    bleService.writeToTransparentUART("[0L0200]".getBytes());       //Write command to the Transparent UART to turn off the green LED (LED0)
-                                }
-                            }
-                            else if (newLineStr.charAt(ledIndex + 3) == '1') {                      //See if the status is for the red LED (LED1)
-                                if (newLineStr.charAt(ledIndex + 4) == '0' && switchRedLed.isChecked()) { //See if the LED is off and should be on
-                                    bleService.writeToTransparentUART("[0L0211]".getBytes());       //Write command to the Transparent UART to light the red LED (LED1)
-                                }
-                                else if (newLineStr.charAt(ledIndex + 4) == '1' && !switchRedLed.isChecked()) { //See if the LED is on and should be off
-                                    bleService.writeToTransparentUART("[0L0210]".getBytes());       //Write command to the Transparent UART to turn off the red LED (LED1)
-                                }
-                            }
-                        }
-                        //Got temperature packet
                         if (tempIndex != -1) {                                                      //See if the temperature text was found
-                            int rawTemp = (Character.digit(newLineStr.charAt(tempIndex + 5), 16) << 12) //Pull out the ascii characters for the temperature reading
-                                    + (Character.digit(newLineStr.charAt(tempIndex + 6), 16) << 8)
-                                    + (Character.digit(newLineStr.charAt(tempIndex + 3), 16) << 4)
-                                    + Character.digit(newLineStr.charAt(tempIndex + 4), 16);
-                            double temperature = (rawTemp > 32767) ? ((double)(rawTemp - 65536)) / 16 : ((double)(rawTemp)) / 16; //Convert unsigned left shifted to signed
                             String newData = newLineStr.substring(4,7);
-                            Log.d("dd", String.valueOf(newLineStr));
-                            Log.d("dd", String.valueOf(newData));
                             textTemperature.setText(textTemperature.getText() + "\n" + newData);
-
-                        }
-                        //Got accelerometer packet
-                        if (accelIndex != -1) {                                                     //See if the accelerometer text was found
-                            int rawX = (Character.digit(newLineStr.charAt(accelIndex + 5), 16) << 12) //Pull out the ascii characters for the accelerometer X readings
-                                    + (Character.digit(newLineStr.charAt(accelIndex + 6), 16) << 8)
-                                    + (Character.digit(newLineStr.charAt(accelIndex + 3), 16) << 4)
-                                    + Character.digit(newLineStr.charAt(accelIndex + 4), 16);
-                            int accelX = (rawX > 2047) ? (rawX - 4096) : rawX;                      //Convert unsigned 12-bit to signed
-                            int rawY = (Character.digit(newLineStr.charAt(accelIndex + 9), 16) << 12) //Pull out the ascii characters for the accelerometer Y readings
-                                    + (Character.digit(newLineStr.charAt(accelIndex + 10), 16) << 8)
-                                    + (Character.digit(newLineStr.charAt(accelIndex + 7), 16) << 4)
-                                    + Character.digit(newLineStr.charAt(accelIndex + 8), 16);
-                            int accelY = (rawY > 2047) ? (rawY - 4096) : rawY;                      //Convert unsigned 12-bit to signed
-                            int rawZ = (Character.digit(newLineStr.charAt(accelIndex + 13), 16) << 12) //Pull out the ascii characters for the accelerometer Z readings
-                                    + (Character.digit(newLineStr.charAt(accelIndex + 14), 16) << 8)
-                                    + (Character.digit(newLineStr.charAt(accelIndex + 11), 16) << 4)
-                                    + Character.digit(newLineStr.charAt(accelIndex + 12), 16);
-                            int accelZ = (rawZ > 2047) ? (rawZ - 4096) : rawZ;                      //Convert unsigned 12-bit to signed
-                            textAccelerometerX.setText(String.format("%s%d", getString(R.string.accelerometer_x), accelX));        //Display the accelerometer X readings
-                            textAccelerometerY.setText(String.format("%s%d", getString(R.string.accelerometer_y), accelY));        //Display the accelerometer Y readings
-                            textAccelerometerZ.setText(String.format("%s%d", getString(R.string.accelerometer_z), accelZ));        //Display the accelerometer Z readings
-                            accelXSeries.appendData(new DataPoint(accelGraphHorizontalPoint, accelX), true, 100); //Update the graph with the new accelerometer readings
-                            accelYSeries.appendData(new DataPoint(accelGraphHorizontalPoint, accelY), true, 100);
-                            accelZSeries.appendData(new DataPoint(accelGraphHorizontalPoint, accelZ), true, 100);
-                            accelGraphHorizontalPoint += 1d;                                        //Increment the index for the next point on the horizontal axis of the graph
+                            rxSeries.appendData(new DataPoint(GraphHorizontalPoint, Integer.parseInt(newData)), true, 100);
+                            GraphHorizontalPoint += 1d;
                         }
                         search = true;                                                              //Found a termination byte during this search so repeat the search to see if there are any more
                         break;
